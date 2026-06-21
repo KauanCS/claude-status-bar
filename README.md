@@ -50,7 +50,9 @@ The yellow "Awaiting permission" dot appears when Claude Code fires its permissi
 1. Download the latest `ClaudeStatusBar.dmg` from [Releases](../../releases).
 2. Open it and drag **Claude Status Bar** into Applications.
 3. Launch it once — on first launch it wires up the Claude Code hooks for you automatically.
-4. Start a new Claude Code session — the spark appears whenever Claude Code is running.
+4. Start a new Claude Code session, the spark appears whenever Claude Code is running.
+
+> **Already have Claude Code open when you install? Restart it (or start a new session) once.** A running session loads its hooks at startup, so it won't pick up the newly installed ones until you start fresh, the bar stays idle until then. After that first restart it's automatic and you never need to do it again.
 
 > The DMG is signed and notarized, so it opens normally, no Gatekeeper warning, no right-click needed.
 
