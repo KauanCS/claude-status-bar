@@ -83,7 +83,8 @@ if [[ "${1:-}" == "--dmg" ]]; then
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
 
-  # Lay out the window on a read-write image, then compress it.
+  # Lay out the window on a read-write image to capture its .DS_Store, then build the final
+  # image from the folder (see below).
   hdiutil create -volname "Claude Status Bar" -srcfolder "$STAGE" -ov -format UDRW build/rw.dmg >/dev/null
   device="$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/' | head -1 | awk '{print $1}')"
   sleep 1
@@ -107,12 +108,16 @@ tell application "Finder"
   end tell
 end tell
 OSA
-  # Strip macOS junk right before detach. No DMG stapling happens after this, so it stays gone.
-  rm -rf "/Volumes/Claude Status Bar/.fseventsd" "/Volumes/Claude Status Bar/.Trashes" 2>/dev/null || true
-  sync; sleep 1
+  # Capture the layout Finder just wrote (.DS_Store), then discard the writable image and build
+  # the final compressed image straight from the folder. Building from a folder never mounts a
+  # writable volume, so macOS's fseventsd never creates a hidden .fseventsd in the shipped DMG.
+  # (Removing .fseventsd from a mounted volume does not stick: the removal is itself an event
+  # fseventsd logs, which recreates the folder.)
+  cp "/Volumes/Claude Status Bar/.DS_Store" "$STAGE/.DS_Store" 2>/dev/null || true
   hdiutil detach "$device" >/dev/null || true
-  hdiutil convert build/rw.dmg -format UDZO -o "$DMG" >/dev/null
-  rm -rf build/rw.dmg "$STAGE"
+  rm -f build/rw.dmg
+  hdiutil create -volname "Claude Status Bar" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+  rm -rf "$STAGE"
 
   # Sign, then notarize + staple the DMG so the downloaded image opens with no Gatekeeper
   # warning. Stapling writes the ticket into the read-only image's metadata; it does not
