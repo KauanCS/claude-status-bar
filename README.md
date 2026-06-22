@@ -59,6 +59,13 @@ The yellow "Awaiting permission" dot appears when Claude Code fires its permissi
 If first-launch setup ever doesn't take, you can run it manually:
 `node "/Applications/ClaudeStatusBar.app/Contents/Resources/install.js"`
 
+### Updating to a new version
+
+1. Download the latest `ClaudeStatusBar.dmg` from [Releases](../../releases).
+2. Open it and drag **Claude Status Bar** into Applications. Finder will say an item with that name already exists and ask what to do, choose **Replace**. You do not need to uninstall the old version first.
+3. Launch it once. On a version change it refreshes its hooks automatically and cleans up anything an older version left behind, so there's no manual step.
+4. Restart Claude Code (or start a new session) so it picks up the refreshed hooks.
+
 ### Option B — Claude Code plugin
 
 Installs the hooks (status + open/close lifecycle) automatically from inside Claude Code:
