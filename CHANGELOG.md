@@ -3,6 +3,17 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.0.3] - 2026-06-22
+
+### Changed
+- Reworked how the icon appears on desktop-app launch. The app is now started by the existing session hook (which fires when the Claude desktop app opens, when `claude` runs in a terminal, or when a conversation is opened) and quits itself when Claude is closed and no session is active. This keeps the "icon appears when the desktop app opens" behavior from 0.0.2 with no background helper.
+
+### Removed
+- The background watcher (a `launchd` LaunchAgent running a shell script) introduced in 0.0.2. It showed up as a "bash" item under Login Items and Extensions, which was confusing. There is no longer any login item or background item. Upgrading from 0.0.2 removes the old LaunchAgent automatically.
+
+### Fixed
+- The menu bar icon now reliably disappears when you quit the Claude desktop app, detected directly rather than relying on the session-end hook (which is unreliable during app shutdown).
+
 ## [0.0.2] - 2026-06-21
 
 ### Added
@@ -27,5 +38,6 @@ All notable changes to Claude Status Bar are documented here. This project follo
 - Signed and notarized DMG so it opens without a Gatekeeper warning.
 - Claude Code plugin marketplace manifest for the plugin install path.
 
+[0.0.3]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.0.3
 [0.0.2]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.0.2
 [0.0.1]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.0.1

@@ -6,11 +6,21 @@ import Cocoa
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let statePath = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/state.json")
+    let sessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/sessions.d")
+    let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
 
     var lastMTime: Date = .distantPast
     var pollTimer: Timer?
     var animTimer: Timer?
     var frameIdx = 0
+
+    // Self-quit lifecycle: we're launched by the SessionStart hook; we decide when to
+    // leave (see checkLifecycle). No background/login item — the check only runs while
+    // we're already alive.
+    let launchedAt = Date()
+    var notNeededSince: Date?
+    let launchGrace: TimeInterval = 5   // settle time after launch before we may quit
+    let idleQuitDelay: TimeInterval = 3 // "not needed" must persist this long before quitting
 
     var current: [String: Any] = [:]
     var activeBase = ""        // label without the elapsed clock
@@ -148,6 +158,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     // MARK: state polling
 
     func tick() {
+        checkLifecycle()
         let fm = FileManager.default
         guard let attrs = try? fm.attributesOfItem(atPath: statePath),
               let m = attrs[.modificationDate] as? Date else {
@@ -189,6 +200,36 @@ final class StatusController: NSObject, NSMenuDelegate {
         case "permission":render(label: "Awaiting permission", color: amber, animate: false, startedAt: 0, dot: true)
         case "waiting":   render(label: label.isEmpty ? "Waiting" : label, color: iconColor, animate: false, startedAt: 0)
         default:          render(label: "", color: iconColor, animate: false, startedAt: 0) // done + idle: just the orange spark
+        }
+    }
+
+    // MARK: self-quit lifecycle
+
+    // True while the Claude desktop app is running. Cheap, needs no permission, and
+    // unlike the SessionEnd hook it stays reliable during the app's shutdown.
+    func claudeDesktopRunning() -> Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == claudeDesktopBundleID }
+    }
+
+    // Active Claude Code sessions = one file per session id in sessions.d/ (lifecycle.js).
+    // Covers the CLI, where there's no desktop process to watch.
+    func sessionCount() -> Int {
+        (try? FileManager.default.contentsOfDirectory(atPath: sessionsDir).count) ?? 0
+    }
+
+    // Stay while Claude desktop is open OR a session is active; otherwise quit (after a
+    // short, debounced grace so warmup-session churn and app relaunches don't kill us).
+    func checkLifecycle() {
+        let now = Date()
+        if now.timeIntervalSince(launchedAt) < launchGrace { return }
+        if claudeDesktopRunning() || sessionCount() > 0 {
+            notNeededSince = nil
+            return
+        }
+        if let since = notNeededSince {
+            if now.timeIntervalSince(since) >= idleQuitDelay { NSApp.terminate(nil) }
+        } else {
+            notNeededSince = now
         }
     }
 

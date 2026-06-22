@@ -13,18 +13,21 @@ const sbDir = path.join(home, ".claude", "statusbar");
 const MARKER = sbDir; // every hook command we add points inside this dir
 const updateDest = path.join(sbDir, "update.js");
 const lifecycleDest = path.join(sbDir, "lifecycle.js");
-const watcherDest = path.join(sbDir, "watcher.sh");
 const settingsPath = path.join(home, ".claude", "settings.json");
 const node = process.execPath;
 
-const AGENT_LABEL = "com.local.claudestatusbar.watcher";
-const agentPlist = path.join(home, "Library", "LaunchAgents", AGENT_LABEL + ".plist");
+// Clean up the old 0.0.2 background watcher on upgrade: 0.0.3+ has the app quit itself
+// (no LaunchAgent), so remove any leftover agent/script that would otherwise linger as a
+// "bash" background item.
+const OLD_AGENT_LABEL = "com.local.claudestatusbar.watcher";
+const oldAgentPlist = path.join(home, "Library", "LaunchAgents", OLD_AGENT_LABEL + ".plist");
+try { cp.execSync(`launchctl bootout gui/${process.getuid()}/${OLD_AGENT_LABEL}`, { stdio: "ignore" }); } catch {}
+if (fs.existsSync(oldAgentPlist)) { fs.rmSync(oldAgentPlist); console.log("Removed old desktop watcher LaunchAgent."); }
 
 fs.mkdirSync(sbDir, { recursive: true });
+fs.rmSync(path.join(sbDir, "watcher.sh"), { force: true });
 fs.copyFileSync(path.join(__dirname, "update.js"), updateDest);
 fs.copyFileSync(path.join(__dirname, "lifecycle.js"), lifecycleDest);
-fs.copyFileSync(path.join(__dirname, "watcher.sh"), watcherDest);
-fs.chmodSync(watcherDest, 0o755);
 
 const cmd = (evt) => `${node} ${updateDest} ${evt}`;
 const life = (evt) => `${node} ${lifecycleDest} ${evt}`;
@@ -60,7 +63,7 @@ addMatched("PreToolUse", cmd("pre"));
 addMatched("PostToolUse", cmd("post"));
 addUnmatched("Notification", cmd("notify"));
 addUnmatched("Stop", cmd("stop"));
-// Lifecycle hooks (launch on open, quit on last close)
+// Lifecycle hooks (launch the app on open; the app quits itself when no longer needed)
 addUnmatched("SessionStart", life("start"));
 addUnmatched("SessionEnd", life("end"));
 
@@ -68,30 +71,3 @@ fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log("Installed status-bar hooks into", settingsPath);
 console.log("Scripts:", updateDest, "and", lifecycleDest);
 console.log("Backup (first run only):", settingsPath + ".bak-statusbar");
-
-// LaunchAgent: a resident watcher that shows the icon whenever the Claude desktop
-// app is open (not just during sessions). Idempotent: boot it out before loading.
-fs.mkdirSync(path.dirname(agentPlist), { recursive: true });
-fs.writeFileSync(agentPlist, `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${AGENT_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>${watcherDest}</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-</dict>
-</plist>
-`);
-const uid = process.getuid();
-try { cp.execSync(`launchctl bootout gui/${uid}/${AGENT_LABEL}`, { stdio: "ignore" }); } catch {}
-try {
-  cp.execSync(`launchctl bootstrap gui/${uid} "${agentPlist}"`, { stdio: "ignore" });
-  console.log("Loaded desktop watcher LaunchAgent:", agentPlist);
-} catch (e) {
-  console.log("Wrote watcher LaunchAgent but could not load it; it will start at next login:", agentPlist);
-}
