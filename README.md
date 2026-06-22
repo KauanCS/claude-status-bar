@@ -6,7 +6,7 @@ A tiny macOS menu bar app that shows **Claude Code's live status**: an animated 
 
 <img width="1016" height="566" alt="for gif (1)" src="https://github.com/user-attachments/assets/55a7b294-e893-4f73-b16b-b8beef784400" />
 
-### [Download ClaudeStatusBar.dmg](https://github.com/m1ckc3s/claude-status-bar/releases/latest/download/ClaudeStatusBar.dmg)
+<a href="https://github.com/m1ckc3s/claude-status-bar/releases/latest/download/ClaudeStatusBar.dmg"><img src="assets/download.png" alt="Download ClaudeStatusBar.dmg for macOS" width="260"></a>
 
 Signed and notarized. Open it, drag the app to Applications, launch once. See [Install](#install) for details.
 
