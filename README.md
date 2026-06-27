@@ -10,8 +10,7 @@ A tiny macOS menu bar app that shows **Claude Code's live status**: an animated 
 
 > Built so you can tab away during a long "thinking" stretch and still see, at a glance, whether Claude is working, waiting on you, or done._
 
-<img width="710" height="714" alt="Screen Recording 2026-06-25 at 12 16 50 PM" src="https://github.com/user-attachments/assets/68df52f8-9c0e-41a5-83f3-0b8449073055" />
-<br>
+<img width="600" height="488" alt="Screen Recording 2026-06-26 at 10 01 17 PM (1)" src="https://github.com/user-attachments/assets/4cc7a726-abe5-4e9c-aa5f-8525ddf6f398" />
 
 > [!IMPORTANT]
 > **Multi-session support.** When several Claude Code sessions run at once (multiple terminals, or
@@ -21,7 +20,6 @@ A tiny macOS menu bar app that shows **Claude Code's live status**: an animated 
 > the Claude app, terminal sessions bring their terminal app to the front (the app, not yet the
 > exact window or tab when you have several open). Precise per-tab focus is in progress:
 > **[issue #19 →](https://github.com/m1ckc3s/claude-status-bar/issues/19)**.
-> Background: **[issue #8 →](https://github.com/m1ckc3s/claude-status-bar/issues/8)**
 
 ---
 
