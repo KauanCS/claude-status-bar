@@ -3,6 +3,16 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-06-28
+
+### Fixed
+- Idle sessions no longer vanish from the menu bar. The icon now follows the live session: it stays while Claude is running and clears when you close it.
+- The session list never goes empty: there's always a session to click, or an "Open Claude" shortcut when only the desktop app is open.
+
+### Changed
+- Desktop conversations appear only once you work in them, so clicking through conversations no longer clutters the list. Terminal and editor sessions still show the moment they start.
+- Menu polish: the session spinner matches the row text, a smaller timer, a tidier Options section, and a light-mode toggle you can actually see.
+
 ## [0.3.0] - 2026-06-26
 
 ### Added
@@ -86,6 +96,7 @@ All notable changes to Claude Status Bar are documented here. This project follo
 - Signed and notarized DMG so it opens without a Gatekeeper warning.
 - Claude Code plugin marketplace manifest for the plugin install path.
 
+[0.3.1]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.3.1
 [0.3.0]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.3.0
 [0.2.2]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.2.2
 [0.2.1]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.2.1

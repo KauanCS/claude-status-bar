@@ -69,8 +69,7 @@ Signed and notarized.
 
 ### Updating
 
-Download the latest DMG and drag it into Applications (choose **Replace**). 
-Launch it once, it refreshes its hooks on a version change, then restart Claude Code to pick them up.
+Download the latest DMG and drag it into Applications (choose **Replace**). That's it: it refreshes its own hooks the next time it starts up (on a version change it re-runs its installer automatically), so there's nothing to run by hand. Your next Claude Code session picks them up.
 
 ### Option B — Claude Code plugin
 
@@ -85,9 +84,13 @@ The plugin installs the hooks but not the app itself, so drag **Claude Status Ba
 
 ## How it works
 
-The app is stateless. Claude Code hooks write each session's status to its own file under `~/.claude/statusbar/state.d/<session_id>.json`; the app polls that directory every 0.4s, aggregates across all live sessions, and renders one icon and label (permission dot if any session needs approval, animating if any is working, resting only when all are idle). `SessionStart` launches it; it self-quits once the Claude desktop app is closed and no Claude Code session is active (each active session is its file under `~/.claude/statusbar/state.d/`).
+The app is stateless. Claude Code fires hooks as it works; the app polls those updates and aggregates them across every live session into a single icon, a permission dot if one needs you, animating if any session is working, resting when all are idle. It launches itself when Claude Code opens and quits when nothing's running, so there's nothing to manage.
 
 The installer merges its hooks into `~/.claude/settings.json` (backing it up first), and the app's only network call is a once-a-day GitHub release check ([details](docs/privacy.md)).
+
+## Troubleshooting
+
+Icon quitting right after you open it, not showing, or not moving in Cursor? See [Troubleshooting](docs/troubleshooting.md), most of it is expected behavior, not a bug.
 
 ## Uninstall
 
