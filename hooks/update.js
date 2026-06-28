@@ -92,7 +92,11 @@ process.stdin.on("end", () => {
   // TERM_PROGRAM identifies the terminal app for a CLI session (Apple_Terminal, iTerm.app,
   // vscode, WezTerm, …); the app uses it to bring that terminal to the front on a row click.
   const termProgram = process.env.TERM_PROGRAM || prev.term_program || "";
-  const out = { state, label, tool: p.tool_name || "", project, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, startedAt, ts };
+  // process.ppid IS this session's `claude` process (verified: hooks are spawned directly by it,
+  // stable for the session's life, on both CLI and desktop). The app uses kill(pid,0) for liveness.
+  // started:true — any update.js event (prompt/tool/permission/stop) is real activity, so the session
+  // graduates from "merely opened" to visible in the dropdown. Clicking a conversation never fires here.
+  const out = { state, label, tool: p.tool_name || "", project, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     const tmp = statePath + "." + process.pid + ".tmp";
