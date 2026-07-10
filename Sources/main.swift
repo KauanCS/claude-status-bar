@@ -188,7 +188,13 @@ final class SessionRowView: NSView {
             // column reserved ~50pt of blank space that pixel-truncated the name · branch next to it.
             let font = timerField.font ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             let tw = ceil(timer.size(withAttributes: [.font: font]).width) + 2
-            timerField.frame = NSRect(x: pillLeft - timerGap - tw, y: (rowH - 16) / 2, width: tw, height: 16)
+            // The timer font is 2pt smaller than the name font; equal-height boxes at the same y center
+            // the text, which leaves the smaller font's baseline higher and the digits visibly floating
+            // next to the name. Offset the frame so the two baselines coincide.
+            let nf = nameField.font ?? NSFont.menuFont(ofSize: 0)
+            let baseline = { (f: NSFont) in (16 - (f.ascender - f.descender)) / 2 - f.descender }
+            let dy = baseline(nf) - baseline(font)
+            timerField.frame = NSRect(x: pillLeft - timerGap - tw, y: (rowH - 16) / 2 + dy, width: tw, height: 16)
         } else { timerField.isHidden = true }
         // Name stretches to whatever the timer/pill leave free (branch text made the fixed 160 tight);
         // pixel truncation via the paragraph style handles overflow.
@@ -200,6 +206,10 @@ final class SessionRowView: NSView {
     private func renderName() {
         let para = NSMutableParagraphStyle()
         para.lineBreakMode = .byTruncatingTail
+        // Barely-overflowing text otherwise gets its tracking silently condensed to fit ("default
+        // tightening"), so the same name renders visibly squished on a row whose timer narrows the
+        // field. Constant tracking on every row; overflow shows an honest ellipsis instead.
+        para.allowsDefaultTighteningForTruncation = false
         let font = NSFont.menuFont(ofSize: 0)
         let text = NSMutableAttributedString(string: nameText, attributes: [
             .font: font, .paragraphStyle: para,
@@ -500,6 +510,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         // Branches otherwise refresh only on hook events, so re-read on open (one tiny file read per
         // session) to catch a checkout made while a session sat idle.
         for (id, s) in sessions where !s.cwd.isEmpty {
+            if gitHeadCache[s.cwd] == "" { gitHeadCache[s.cwd] = nil }  // recheck non-git: may have been git-init'd since
             var u = s; u.branch = branchForCwd(u.cwd); sessions[id] = u
         }
 
@@ -671,7 +682,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let now = Date().timeIntervalSince1970
         // Generous cap: the row's pixel truncation does the real limiting now that the name field
         // sizes to the free space; this only guards against pathological strings.
-        let nameMax = Int(cfg["nameMax"] ?? 40)
+        let nameMax = Int(cfg["nameMax"] ?? 30)
         let working = (eff == "thinking" || eff == "tool") && s.startedAt > 0
         let resting = !(eff == "permission" || eff == "thinking" || eff == "tool")  // the dim caret
         let tag = surfaceTag(s.entrypoint)
@@ -901,6 +912,9 @@ final class StatusController: NSObject, NSMenuDelegate {
                   let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let id = (f as NSString).deletingPathExtension
             var s = Session(json: o, id: id)
+            // A hook event means activity in that cwd, which may have JUST become a repo (git init /
+            // first branch mid-session) — a cached "" (non-git) would otherwise stick until app restart.
+            if gitHeadCache[s.cwd] == "" { gitHeadCache[s.cwd] = nil }
             s.branch = branchForCwd(s.cwd)   // only on file change (a hook event), never on a bare tick
             sessions[id] = s
         }
@@ -983,8 +997,11 @@ final class StatusController: NSObject, NSMenuDelegate {
         // Same-named projects (two clones/worktrees of one repo) get a parent-folder qualifier
         // ("work/myrepo" vs "tmp/myrepo") so their rows stay tellable apart. Runs after the reap so
         // dead sessions can't force a qualifier onto a now-unique name.
+        // Only non-empty cwds count as colliding locations: a pre-upgrade/warmup file without cwd is
+        // location-unknown, and counting its "" as a distinct place forced a bogus qualifier onto a
+        // genuinely unique row.
         var cwdsByProject: [String: Set<String>] = [:]
-        for s in sessions.values where !s.project.isEmpty { cwdsByProject[s.project, default: []].insert(s.cwd) }
+        for s in sessions.values where !s.project.isEmpty && !s.cwd.isEmpty { cwdsByProject[s.project, default: []].insert(s.cwd) }
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
             if !s.cwd.isEmpty, (cwdsByProject[s.project]?.count ?? 0) > 1 {
