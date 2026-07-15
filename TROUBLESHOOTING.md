@@ -4,8 +4,6 @@
 
 **Updated (or just installed) while Claude Code sessions were already running?** Those sessions only show up once they do something after the new hooks are in place, so the menu can look empty even with terminals open. Send a prompt in each one, or start a fresh `claude` session, and they appear. (Restarting the terminal works too, since that starts a new session.)
 
-**Using Cursor (or another IDE)?** This tracks Claude Code, not the IDE's own built-in agent. Use the **Claude Code plugin** or a terminal inside Cursor; the default agent window doesn't fire Claude Code hooks, so the icon won't move there.
-
 **The icon doesn't appear at all?**
 - Make sure a Claude session is actually running. Start a new session (or restart Claude Code) and the bar appears automatically.
 - A session that was already running *before* you installed gets picked up once it does something, but starting a fresh session is the reliable way to bring the bar up the first time.
