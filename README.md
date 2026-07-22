@@ -52,7 +52,7 @@ Everything is controlled from the menu:
   - **Claude Code**, the terminal glyph spinner
   - **Crab Walking**, a pixel-art Clawd crab that scuttles while Claude works
 - **Icon color:** **Orange** or **System** (adaptive black/white). All three styles follow this setting: in System mode Crab Walking renders as a shaded monochrome silhouette that matches the menu bar.
-- **Version and update:** the menu shows your current version, with a one-click "Update available" when a newer release exists.
+- **Version and update:** the menu shows your current version and tells you when an update is ready (see [Updating](#updating)).
 
 ### Where it works
 
@@ -68,7 +68,7 @@ Everything is controlled from the menu:
 ## How it works
 
 > [!NOTE]
-> You don't open this app, it opens itself. (Execpt for very first install. Launch Once to set up hooks. App will self quit until a session starts)
+> You don't open this app; it opens itself when a Claude Code session starts, and quits when none is running. The only manual launch is the very first one after install, to set up the hooks. Opened by hand with no session active, it quits again after a few seconds. That's normal.
 
 The app is stateless. Claude Code fires hooks as it works; the app polls those updates and aggregates them across every live session into a single icon, a permission dot if one needs you, animating if any session is working, resting when all are idle. It launches itself when Claude Code opens and quits when nothing's running, so there's nothing to manage.
 
