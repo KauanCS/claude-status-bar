@@ -2,7 +2,7 @@
 
 **You don't open this app, it opens itself.** The only time you launch it by hand is once, right after install, so it can wire up the Claude Code hooks. After that it starts itself whenever a Claude Code session is running and quits when none is. So opening it from Finder or Spotlight with no session active can look like it launches and immediately quits. That is expected, not a crash: just start a Claude Code session and the icon appears on its own. Upgrades self-heal: drop the new version into Applications and it refreshes its own hooks the next time it starts up. (It relaunches itself when your next session begins, and on a version change it re-runs its installer automatically, so you never run anything by hand.)
 
-**Updated (or just installed) while Claude Code sessions were already running?** Those sessions only show up once they do something after the new hooks are in place, so the menu can look empty even with terminals open. Send a prompt in each one, or start a fresh `claude` session, and they appear. (Restarting the terminal works too, since that starts a new session.)
+**Updated (or just installed) while Claude Code sessions were already running?** Sessions already open won't show up until you start a new `claude` session, so the menu can look empty even with terminals open. (Restarting the terminal works too, since that starts a new session.)
 
 **Using Chat or Cowork in the desktop app?** Those don't move the icon. Claude Code Chat and Cowork don't fire the same hooks this app runs on, so there's no live signal to drive the timer or the animation. Only Claude Code sessions move it: the desktop app's Code mode, or `claude` in a terminal. You'll still see the resting spark while the desktop app is open.
 
@@ -12,7 +12,7 @@
 
 **The icon doesn't appear at all?**
 - Make sure a Claude session is actually running, not just a terminal window open. Start a new session (or restart Claude Code) and the bar appears automatically.
-- A session that was already running *before* you installed gets picked up once it does something, but starting a fresh session is the reliable way to bring the bar up the first time.
+- A session that was already running *before* you installed won't show up until you start a fresh session.
 - Confirm it's running with `pgrep -x ClaudeStatusBar`: a number means it's running (it may just be hidden), no output means it exited because no Claude session is active.
 - If first-launch setup never took, run the installer manually: `node "/Applications/ClaudeStatusBar.app/Contents/Resources/install.js"`
 

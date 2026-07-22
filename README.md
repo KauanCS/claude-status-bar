@@ -33,7 +33,7 @@ The one launch at the end matters: it wires up the Claude Code hooks automatical
 ### Updating
 
 > [!IMPORTANT]
-> **Updated mid-session?** Sessions already open won't show up until they do something (send a prompt) or you start a new `claude` session.
+> **Updated (or installed) mid-session?** Sessions already open won't show up until you start a new `claude` session.
 
 The menu tells you when an update is ready. Installed via brew, it shows **Update via brew** with a copy button (paste the command in your terminal); it appears once Homebrew can actually deliver the new version, which can lag a release by up to a day. Installed via DMG, **Update available** opens the releases page, plus a one-click **Switch to Homebrew** option.
 
