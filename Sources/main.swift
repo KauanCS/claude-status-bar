@@ -1001,8 +1001,18 @@ final class StatusController: NSObject, NSMenuDelegate {
     // (re-verified 2026-08-08, Claude 1.26832.0 — see the ROADMAP desktop section, issue #58).
     // CLI session: bring its terminal APP to the front (zero permission). Targeting the exact
     // window/tab needs a one-time Automation grant, deferred to the opt-in build (issue #19).
+    // Row click. Desktop session: raise the Claude app (exact-conversation focus isn't possible;
+    // see the ROADMAP desktop section, issue #58). Terminal.app CLI session with a known tty:
+    // select and activate that exact tab (issue #19, no longer deferred for Terminal.app).
+    // Every other surface: raise the app only, same as before. Clicking always clears the
+    // session's pending badge immediately — it's an explicit acknowledgment either way.
     func openSession(_ id: String, entrypoint: String, termProgram: String) {
+        pendingSessions.remove(id)
         if entrypoint == "claude-desktop" { openClaude(); return }
+        if termProgram == "Apple_Terminal", let tty = sessions[id]?.tty, !tty.isEmpty,
+           terminalFocus.focusTab(tty: tty) {
+            return
+        }
         // Map TERM_PROGRAM to a name `open -a` understands; most terminals match verbatim.
         let app: String
         switch termProgram {
