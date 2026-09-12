@@ -335,6 +335,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         var cwd: String         // session working directory; "" on pre-upgrade files
         var entrypoint: String  // CLAUDE_CODE_ENTRYPOINT: "cli", "claude-desktop", …
         var termProgram: String // TERM_PROGRAM for CLI sessions: "Apple_Terminal", "iTerm.app", …
+        var tty: String         // "/dev/ttysNNN" for a real terminal tty; "" if unknown or not a tty
         var pid: Int32          // the session's `claude` process; kill(pid,0) drives liveness. 0 = pre-upgrade file.
         var started: Bool       // true once the session had real activity (a prompt/tool); a merely-opened
                                 // conversation seeds started=false and stays out of the dropdown.
@@ -352,6 +353,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             self.cwd = o["cwd"] as? String ?? ""
             self.entrypoint = o["entrypoint"] as? String ?? ""
             self.termProgram = o["term_program"] as? String ?? ""
+            self.tty = o["tty"] as? String ?? ""
             self.pid = Int32(truncatingIfNeeded: (o["pid"] as? NSNumber)?.intValue ?? 0)
             self.started = o["started"] as? Bool ?? false
             self.startedAt = (o["startedAt"] as? NSNumber)?.doubleValue ?? 0
