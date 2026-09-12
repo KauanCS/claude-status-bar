@@ -3,6 +3,11 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Pending session badge.** A session that finishes a turn or needs your permission while you're looking at a different terminal tab now gets a purple "unread" dot — on its row and on the menu bar icon — that clears the moment you switch to its tab or click its row. Clicking a Terminal.app session's row now also focuses the exact tab it's running in, instead of just raising Terminal (**[issue #19](https://github.com/m1ckc3s/claude-status-bar/issues/19)**, for Terminal.app).
+
 ## [0.4.4] - 2026-08-05
 
 ### Changed

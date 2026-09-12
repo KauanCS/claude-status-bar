@@ -41,6 +41,7 @@ Or just run `brew upgrade --cask claude-status-bar` (brew), or download the late
 - **Thinking / working** — the icon animates, with a live `1m 1s` timer.
 - **Running a tool** — a short label (`Editing`, `Reading`, `Running command`, `Using tool`, …).
 - **Awaiting permission** — a paused yellow dot, in both the CLI and the Desktop app.
+- **Pending** — a purple dot on any session that finished a turn or needs your permission while you weren't looking at its terminal tab. Clears the moment you switch to that tab, or click its row in the dropdown.
 - **Idle / done** — rests on the Claude logo.
 
 Everything is controlled from the menu:
@@ -63,7 +64,7 @@ Everything is controlled from the menu:
 | Cursor (Claude Code extension) | ✅ |
 | Claude Desktop — **Chat/Cowork** tab | ❌ |
 
-**Multi-session support.** When several Claude Code sessions run at once (multiple terminals, or a terminal plus the desktop app), the menu bar surfaces the highest-priority one: a session awaiting your permission is never hidden behind one that's thinking. The dropdown lists every live session. Precise per-tab focus is in progress: **[issue #19 →](https://github.com/m1ckc3s/claude-status-bar/issues/19)**.
+**Multi-session support.** When several Claude Code sessions run at once (multiple terminals, or a terminal plus the desktop app), the menu bar surfaces the highest-priority one: a pending (unread) session is never hidden behind one that's merely thinking, and neither is one awaiting your permission. The dropdown lists every live session. Clicking a Terminal.app session's row focuses its exact tab, not just the app (**[issue #19](https://github.com/m1ckc3s/claude-status-bar/issues/19)** is resolved for Terminal.app; other terminals/editors still raise the app only).
 
 ## How it works
 
