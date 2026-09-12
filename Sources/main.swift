@@ -996,11 +996,6 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
-    // Row click. Desktop session: raise the Claude app. Focusing the exact conversation isn't
-    // possible; every deep-link route either imports a copy or needs an id the app never exposes
-    // (re-verified 2026-08-08, Claude 1.26832.0 — see the ROADMAP desktop section, issue #58).
-    // CLI session: bring its terminal APP to the front (zero permission). Targeting the exact
-    // window/tab needs a one-time Automation grant, deferred to the opt-in build (issue #19).
     // Row click. Desktop session: raise the Claude app (exact-conversation focus isn't possible;
     // see the ROADMAP desktop section, issue #58). Terminal.app CLI session with a known tty:
     // select and activate that exact tab (issue #19, no longer deferred for Terminal.app).
