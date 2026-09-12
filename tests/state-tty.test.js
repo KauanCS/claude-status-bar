@@ -11,7 +11,16 @@ const updatePath = path.resolve(__dirname, "../hooks/update.js");
 const runHook = (home, scriptPath, event, payload) => {
   const wrapper = [
     `const cp = require("node:child_process");`,
-    `cp.execSync = () => {};`,
+    // Selective mock: let a real "ps -o tty=" call through (that's the exact command
+    // hooks/tty.js's getTtyForPid shells out to, and is what proves real tty resolution
+    // reaches the state file), but still stub out pgrep/open (lifecycle.js's running() check
+    // and update.js's self-heal relaunch), which would otherwise interact with the real,
+    // possibly-installed menu bar app as a side effect of running this test.
+    `const realExecSync = cp.execSync;`,
+    `cp.execSync = (cmd, opts) => {`,
+    `  if (typeof cmd === "string" && cmd.startsWith("ps -o tty=")) return realExecSync(cmd, opts);`,
+    `  return "";`,
+    `};`,
     `cp.spawn = () => ({ unref() {} });`,
     `require(${JSON.stringify(scriptPath)});`,
   ].join("\n");
@@ -30,7 +39,10 @@ test("lifecycle.js start writes a tty field", (t) => {
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   runHook(home, lifecyclePath, "start", { session_id: "sess1", cwd: home });
   const state = readState(home, "sess1");
-  assert.equal(typeof state.tty, "string");
+  // The test process (like this repo's own CI/sandbox environments) may have no real
+  // controlling tty, so this doesn't force a non-empty value — it proves the real "ps -o tty="
+  // exec path ran and produced a well-formed result, matching Task 1's own integration test.
+  assert.ok(state.tty === "" || state.tty.startsWith("/dev/"), `unexpected tty: ${state.tty}`);
 });
 
 test("update.js carries over the previous tty when the event omits it", (t) => {

@@ -38,6 +38,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>NSAppleEventsUsageDescription</key><string>Claude Status Bar uses Apple Events to detect which Terminal.app tab is frontmost, so it can clear a session's "unread" badge when you switch to it, and to focus the exact tab you click on in the menu.</string>
 </dict>
 </plist>
 PLIST
@@ -71,7 +72,7 @@ xattr -cr "$APP"
 
 if [[ -n "$SIGN_ID" ]]; then
   echo "Signing with Developer ID: $SIGN_ID"
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
+  codesign --force --options runtime --entitlements entitlements.plist --timestamp --sign "$SIGN_ID" "$APP"
 else
   echo "No Developer ID cert for team $TEAM_ID found — ad-hoc signing (local dev build)."
   codesign --force --sign - "$APP" >/dev/null 2>&1 || true

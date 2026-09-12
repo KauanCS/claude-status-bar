@@ -675,7 +675,10 @@ final class StatusController: NSObject, NSMenuDelegate {
         var visible = ordered.filter { s in
             let eff = s.eff.isEmpty ? effectiveState(s, now: now) : s.eff
             let resting = !(eff == "permission" || eff == "thinking" || eff == "tool")
-            return !(stalePruneAge > 0 && resting && now - s.ts > stalePruneAge)
+            // A pending session must always have a clickable row — otherwise its badge on the
+            // menu bar icon (leadRank ranks pending highest, regardless of row visibility) could
+            // become undismissable once it's idle past stalePruneAge.
+            return pendingSessions.contains(s.id) || !(stalePruneAge > 0 && resting && now - s.ts > stalePruneAge)
         }
         if visible.isEmpty, let lead = ordered.first { visible = [lead] }   // floor: never empty while alive
 
@@ -1188,7 +1191,20 @@ final class StatusController: NSObject, NSMenuDelegate {
     // started awaiting permission, or it just finished a turn (Stop -> "done"). Reads prevState
     // BEFORE evaluate()'s loop overwrites it, same as completionEdge above. Skipped if the
     // session's tty is already the frontmost Terminal.app tab — the user's already looking at it.
+    //
+    // Auto-clear-by-focus (clearPendingByFocus) only ever matches a Terminal.app tty by design
+    // (Global Constraint: v1 only supports focus-detection for Terminal.app). That means for
+    // every other surface (iTerm, Warp, vscode, …) a pending flag set here could otherwise NEVER
+    // clear on its own — only a manual row click would. Since starting a new turn (thinking/tool)
+    // necessarily means the user just interacted with this exact session, clear pending
+    // unconditionally on that transition, regardless of surface. This is a no-op correction for
+    // Terminal.app (already covered by focus detection) and fixes the stuck-forever badge
+    // everywhere else.
     func updatePendingState(_ s: Session) {
+        if s.state == "thinking" || s.state == "tool" {
+            pendingSessions.remove(s.id)
+            return
+        }
         let prev = prevState[s.id] ?? ""
         let enteringPermission = s.state == "permission" && prev != "permission"
         let enteringDone = s.state == "done" && (prev == "thinking" || prev == "tool")
@@ -1222,7 +1238,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             updatePendingState(s)
             prevState[s.id] = s.state
         }
-        for id in Array(prevState.keys) where sessions[id] == nil { prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil }
+        for id in Array(prevState.keys) where sessions[id] == nil { prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil; pendingSessions.remove(id) }
         if chime { completionSound?.play() }
 
         // Same-named projects (two clones/worktrees of one repo) get a parent-folder qualifier

@@ -21,8 +21,17 @@ final class TerminalFocusTracker {
         !NSRunningApplication.runningApplications(withBundleIdentifier: terminalBundleID).isEmpty
     }
 
+    // AppleScript's "front window" is relative to the target application, not the system —
+    // Terminal answers with its own window 1 regardless of whether Terminal is the app the user
+    // is actually looking at. So the read direction also needs to confirm Terminal is the
+    // system's frontmost app before trusting that answer; the write direction (focusTab) must
+    // NOT use this, since its whole point is bringing Terminal to the front from elsewhere.
+    private var terminalFrontmost: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == terminalBundleID
+    }
+
     func frontmostTerminalTTY() -> String? {
-        guard terminalRunning, let script = frontmostTTYScript else { return nil }
+        guard terminalRunning, terminalFrontmost, let script = frontmostTTYScript else { return nil }
         var error: NSDictionary?
         let result = script.executeAndReturnError(&error)
         guard error == nil else { return nil }
