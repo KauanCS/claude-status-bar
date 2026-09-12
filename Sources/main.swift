@@ -364,6 +364,11 @@ final class StatusController: NSObject, NSMenuDelegate {
     var fileMTimes: [String: Date] = [:]   // "<id>.json" -> last-parsed mtime (re-parse only on change)
     var gitHeadCache: [String: String] = [:]  // cwd -> resolved HEAD path ("" = confirmed non-git)
     var prevState: [String: String] = [:]  // id -> previous raw state per session
+    // In-memory "unread" flag: set when a session finishes a turn or needs permission while the
+    // user isn't looking at its terminal tab; cleared by focus (tick) or by clicking the row.
+    // Never persisted — always empty on relaunch (see plan's Global Constraints).
+    var pendingSessions: Set<String> = []
+    let terminalFocus = TerminalFocusTracker()
     var menuIsOpen = false                  // refresh the dropdown's per-session timers only while open
     var sessionMenuItems: [(item: NSMenuItem, id: String)] = []
     var activeBase = ""        // label without the elapsed clock
@@ -1041,10 +1046,24 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // MARK: state polling
 
+    // Auto-clears pending sessions whose terminal tab has become frontmost. Only runs the
+    // AppleScript query when there's actually a reason to (a pending session with a real tty) —
+    // otherwise this would be an Apple Event on every 0.4s tick even with nothing pending.
+    func clearPendingByFocus() {
+        guard !pendingSessions.isEmpty else { return }
+        guard pendingSessions.contains(where: { !(sessions[$0]?.tty.isEmpty ?? true) }) else { return }
+        guard let frontTTY = terminalFocus.frontmostTerminalTTY() else { return }
+        // Collect matches before removing: mutating a Set while iterating it traps at runtime
+        // ("Set was mutated while being enumerated").
+        let matched = pendingSessions.filter { sessions[$0]?.tty == frontTTY }
+        pendingSessions.subtract(matched)
+    }
+
     func tick() {
         checkLifecycle()
         reloadSessions()
         evaluate()
+        clearPendingByFocus()
         if menuIsOpen { refreshOpenMenuRows() }
     }
 
@@ -1144,6 +1163,19 @@ final class StatusController: NSObject, NSMenuDelegate {
         return edge
     }
 
+    // Marks a session pending on the two edges that mean "you should look at this": it just
+    // started awaiting permission, or it just finished a turn (Stop -> "done"). Reads prevState
+    // BEFORE evaluate()'s loop overwrites it, same as completionEdge above. Skipped if the
+    // session's tty is already the frontmost Terminal.app tab — the user's already looking at it.
+    func updatePendingState(_ s: Session) {
+        let prev = prevState[s.id] ?? ""
+        let enteringPermission = s.state == "permission" && prev != "permission"
+        let enteringDone = s.state == "done" && (prev == "thinking" || prev == "tool")
+        guard enteringPermission || enteringDone else { return }
+        if !s.tty.isEmpty, s.tty == terminalFocus.frontmostTerminalTTY() { return }
+        pendingSessions.insert(s.id)
+    }
+
     func evaluate() {
         let now = Date().timeIntervalSince1970
         var chime = false
@@ -1160,11 +1192,13 @@ final class StatusController: NSObject, NSMenuDelegate {
             if dead {
                 try? FileManager.default.removeItem(atPath: (stateDir as NSString).appendingPathComponent(id + ".json"))
                 sessions[id] = nil; fileMTimes[id + ".json"] = nil; prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil
+                pendingSessions.remove(id)
                 continue
             }
             sessions[id] = s
             updateThinkingWord(s)
             if completionEdge(s, now: now) { chime = true }
+            updatePendingState(s)
             prevState[s.id] = s.state
         }
         for id in Array(prevState.keys) where sessions[id] == nil { prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil }
