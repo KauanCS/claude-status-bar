@@ -102,6 +102,8 @@ final class ToggleView: NSView {
 final class SessionRowView: NSView {
     let id: String
     var onClick: (() -> Void)?
+    static let pendingColor = NSColor(srgbRed: 0.596, green: 0.361, blue: 0.902, alpha: 1) // #9863E6, unread badge
+    private let pendingDot = NSView()
     private let iconView = NSImageView()
     private let spinner = NSProgressIndicator()
     private let nameField = NSTextField(labelWithString: "")
@@ -129,6 +131,17 @@ final class SessionRowView: NSView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.autoresizingMask = [.maxXMargin]
         addSubview(iconView)
+        // Small purple "unread" badge at the icon's top-right corner, matching a Slack-style
+        // notification dot. Hidden by default; shown by configure(pending:).
+        let dotSize: CGFloat = 8
+        pendingDot.wantsLayer = true
+        pendingDot.layer?.cornerRadius = dotSize / 2
+        pendingDot.layer?.backgroundColor = SessionRowView.pendingColor.cgColor
+        pendingDot.frame = NSRect(x: pad + iconSize - dotSize / 2, y: (rowH - iconSize) / 2 + iconSize - dotSize / 2,
+                                   width: dotSize, height: dotSize)
+        pendingDot.autoresizingMask = [.maxXMargin]
+        pendingDot.isHidden = true
+        addSubview(pendingDot)
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isIndeterminate = true
@@ -156,8 +169,9 @@ final class SessionRowView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(icon: NSImage?, iconTint: NSColor?, spinning: Bool, name: String, branch: String, timer: String?,
-                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat) {
+                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat, pending: Bool) {
         let w = bounds.width
+        pendingDot.isHidden = !pending
         iconView.image = icon
         iconBaseTint = iconTint
         iconView.contentTintColor = hovered ? .white : iconTint
@@ -383,6 +397,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     let brand = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1) // #d97757, Anthropic's official "Orange" accent
     let amber = NSColor(srgbRed: 0.95, green: 0.73, blue: 0.18, alpha: 1) // "awaiting permission" yellow dot
+    let pendingPurple = SessionRowView.pendingColor
     let frames: [NSImage] = StatusController.loadFrames()
     let spriteFPS: Double = 9 // tune: 8 frames per loop -> ~0.9s/cycle
 
@@ -849,7 +864,8 @@ final class StatusController: NSObject, NSMenuDelegate {
                     pillNormal: tag.isEmpty ? nil : pillImage(tag),
                     pillSelected: tag.isEmpty ? nil : pillImage(tag, selected: true),
                     pillInset: CGFloat(cfg["pillInset"] ?? 12),
-                    timerGap: CGFloat(cfg["timerGap"] ?? 10))
+                    timerGap: CGFloat(cfg["timerGap"] ?? 10),
+                    pending: pendingSessions.contains(s.id))
         // Truncated rows stay inspectable: full name, branch, and path on hover.
         var tip = sessionName(s)
         if !s.branch.isEmpty { tip += " · " + s.branch }
@@ -1228,15 +1244,22 @@ final class StatusController: NSObject, NSMenuDelegate {
             sessions[id] = s
         }
 
-        // Surface the single highest-priority session (permission > working > …); ties broken by
-        // recency, so within a tier the most recently active session wins.
+        // Surface the single highest-priority session (pending > permission > working > …); ties
+        // broken by recency, so within a tier the most recently active session wins. Pending
+        // outranks everything: a finished/awaiting session you haven't looked at yet must never
+        // be hidden behind one that's merely thinking.
+        func leadRank(_ s: Session) -> Int { pendingSessions.contains(s.id) ? 3 : priority(of: s.eff) }
         let lead = sessions.values.max { a, b in
-            let pa = priority(of: a.eff), pb = priority(of: b.eff)
+            let pa = leadRank(a), pb = leadRank(b)
             return pa == pb ? a.ts < b.ts : pa < pb
         }
         statusItem.button?.toolTip = lead.map(sessionMenuLine)  // names repo + surface + state on hover
 
         guard let lead = lead else { renderResting(); return }
+        if pendingSessions.contains(lead.id) {
+            render(label: statusText(lead, eff: lead.eff), color: pendingPurple, animate: false, startedAt: 0, dot: true)
+            return
+        }
         switch lead.eff {
         case "permission":
             render(label: statusText(lead, eff: lead.eff), color: amber, animate: false, startedAt: 0, dot: true)
