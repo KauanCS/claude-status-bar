@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const cp = require("child_process");
+const { getTtyForPid } = require("./tty.js");
 
 const dir = path.join(os.homedir(), ".claude", "statusbar");
 const stateDir = path.join(dir, "state.d");
@@ -92,11 +93,15 @@ process.stdin.on("end", () => {
   // TERM_PROGRAM identifies the terminal app for a CLI session (Apple_Terminal, iTerm.app,
   // vscode, WezTerm, …); the app uses it to bring that terminal to the front on a row click.
   const termProgram = process.env.TERM_PROGRAM || prev.term_program || "";
+  // Same resolution as term_program: re-derived each event since a session's tty can't change
+  // mid-life, but pid resolution is cheap and this keeps behavior identical for pre-upgrade
+  // files that predate this field (prev.tty is undefined -> falls through to a fresh resolve).
+  const tty = getTtyForPid(process.ppid) || prev.tty || "";
   // process.ppid IS this session's `claude` process (verified: hooks are spawned directly by it,
   // stable for the session's life, on both CLI and desktop). The app uses kill(pid,0) for liveness.
   // started:true — any update.js event (prompt/tool/permission/stop) is real activity, so the session
   // graduates from "merely opened" to visible in the dropdown. Clicking a conversation never fires here.
-  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
+  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, tty, pid: process.ppid, started: true, startedAt, ts };
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     const tmp = statePath + "." + process.pid + ".tmp";

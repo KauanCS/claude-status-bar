@@ -28,6 +28,8 @@ fs.rmSync(path.join(sbDir, "state.json"), { force: true });
 fs.rmSync(path.join(sbDir, "sessions.d"), { recursive: true, force: true });
 fs.copyFileSync(path.join(__dirname, "update.js"), updateDest);
 fs.copyFileSync(path.join(__dirname, "lifecycle.js"), lifecycleDest);
+// update.js/lifecycle.js require("./tty.js") relative to their own installed location.
+fs.copyFileSync(path.join(__dirname, "tty.js"), path.join(sbDir, "tty.js"));
 
 const shellQuote = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
 const quotedMarkerPrefix = shellQuote(MARKER).slice(0, -1);
