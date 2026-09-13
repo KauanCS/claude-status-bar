@@ -337,6 +337,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         var entrypoint: String  // CLAUDE_CODE_ENTRYPOINT: "cli", "claude-desktop", …
         var termProgram: String // TERM_PROGRAM for CLI sessions: "Apple_Terminal", "iTerm.app", …
         var tty: String         // "/dev/ttysNNN" for a real terminal tty; "" if unknown or not a tty
+        var zedEnvironment: String // Zed's own env var, set only for sessions its Agent Panel spawns; "" otherwise
         var pid: Int32          // the session's `claude` process; kill(pid,0) drives liveness. 0 = pre-upgrade file.
         var started: Bool       // true once the session had real activity (a prompt/tool); a merely-opened
                                 // conversation seeds started=false and stays out of the dropdown.
@@ -355,6 +356,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             self.entrypoint = o["entrypoint"] as? String ?? ""
             self.termProgram = o["term_program"] as? String ?? ""
             self.tty = o["tty"] as? String ?? ""
+            self.zedEnvironment = o["zed_environment"] as? String ?? ""
             self.pid = Int32(truncatingIfNeeded: (o["pid"] as? NSNumber)?.intValue ?? 0)
             self.started = o["started"] as? Bool ?? false
             self.startedAt = (o["startedAt"] as? NSNumber)?.doubleValue ?? 0
@@ -848,7 +850,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let nameMax = Int(cfg["nameMax"] ?? 30)
         let working = (eff == "thinking" || eff == "tool") && s.startedAt > 0
         let resting = !(eff == "permission" || eff == "thinking" || eff == "tool")  // the dim caret
-        let tag = surfaceTag(s.entrypoint)
+        let tag = surfaceTag(s.entrypoint, zedEnvironment: s.zedEnvironment)
         v.configure(icon: sessionSymbol(s, eff: eff),
                     iconTint: resting ? .tertiaryLabelColor : .labelColor,  // caret dim; spinner matches the name font; amber image ignores tint
                     spinning: (eff == "thinking" || eff == "tool"),
@@ -882,9 +884,12 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     // CLAUDE_CODE_ENTRYPOINT -> a short all-caps badge tag.
-    // Every surface collapses to a 3-letter pill: the desktop app is APP, everything else (cli,
-    // vscode, cursor, windsurf, …) is a terminal/editor context, so CLI. Keeps pills uniform.
-    func surfaceTag(_ entrypoint: String) -> String {
+    // Every surface collapses to a 3-letter pill: the desktop app is APP, a Zed Agent Panel
+    // session is ZED (identifiable via zedEnvironment — the generic "sdk-ts" entrypoint alone
+    // doesn't distinguish Zed from any other app embedding the Claude Agent SDK), everything
+    // else (cli, vscode, cursor, windsurf, …) is a terminal/editor context, so CLI.
+    func surfaceTag(_ entrypoint: String, zedEnvironment: String) -> String {
+        if !zedEnvironment.isEmpty { return "ZED" }
         switch entrypoint {
         case "claude-desktop": return "APP"
         case "":               return ""
@@ -1030,7 +1035,10 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // Row click. Desktop session: raise the Claude app (exact-conversation focus isn't possible;
     // see the ROADMAP desktop section, issue #58). Terminal.app CLI session with a known tty:
-    // select and activate that exact tab (issue #19, no longer deferred for Terminal.app).
+    // select and activate that exact tab (issue #19, no longer deferred for Terminal.app). A Zed
+    // Agent Panel session (no termProgram/tty — see zedEnvironment on Session): reopen its cwd via
+    // Zed's own CLI, which brings the existing window for that project to the front if one is
+    // already open, then explicitly activate Zed (the CLI alone doesn't reliably do that).
     // Every other surface: raise the app only, same as before. Clicking always clears the
     // session's pending badge immediately — it's an explicit acknowledgment either way.
     func openSession(_ id: String, entrypoint: String, termProgram: String) {
@@ -1038,6 +1046,10 @@ final class StatusController: NSObject, NSMenuDelegate {
         if entrypoint == "claude-desktop" { openClaude(); return }
         if termProgram == "Apple_Terminal", let tty = sessions[id]?.tty, !tty.isEmpty,
            terminalFocus.focusTab(tty: tty) {
+            return
+        }
+        if let zedEnv = sessions[id]?.zedEnvironment, !zedEnv.isEmpty {
+            openZed(cwd: sessions[id]?.cwd ?? "")
             return
         }
         // Map TERM_PROGRAM to a name `open -a` understands; most terminals match verbatim.
@@ -1056,6 +1068,38 @@ final class StatusController: NSObject, NSMenuDelegate {
         try? p.run()
     }
 
+    // Zed's own CLI opens a path, reusing an existing window for that project if one is already
+    // open (verified manually — no AppleScript dictionary exists to target a specific window/tab
+    // the way Terminal.app's does). The CLI alone doesn't reliably raise Zed, so follow with an
+    // explicit activate.
+    func openZed(cwd: String) {
+        guard !cwd.isEmpty else { return }
+        if let zedCLI = Self.locateZedCLI() {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: zedCLI)
+            p.arguments = [cwd]
+            try? p.run()
+        }
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-a", "Zed"]
+        try? open.run()
+    }
+
+    // `zed` is only on PATH if the user ran Zed's "Install CLI" command; the bundled binary
+    // (same one that command symlinks) is the reliable fallback.
+    static func locateZedCLI() -> String? {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        let candidates = [
+            "/opt/homebrew/bin/zed",
+            "/usr/local/bin/zed",
+            "\(home)/.local/bin/zed",
+            "/Applications/Zed.app/Contents/MacOS/cli",
+        ]
+        for path in candidates where fm.isExecutableFile(atPath: path) { return path }
+        return nil
+    }
 
     @objc func chooseColor(_ sender: NSMenuItem) {
         guard let sys = sender.representedObject as? Bool else { return }
