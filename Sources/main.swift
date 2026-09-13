@@ -108,7 +108,8 @@ final class SessionRowView: NSView {
     private let nameField = NSTextField(labelWithString: "")
     private let timerField = NSTextField(labelWithString: "")
     private let pillView = NSImageView()
-    private let pad: CGFloat = 14, iconSize: CGFloat = 16, rowH: CGFloat = 24
+    private let contextRing = NSImageView()
+    private let pad: CGFloat = 14, iconSize: CGFloat = 16, rowH: CGFloat = 24, ringSize: CGFloat = 14, ringGap: CGFloat = 6
     private let highlightView = NSVisualEffectView()  // system selection material = exact native highlight
     private var hovered = false
     private var iconBaseTint: NSColor?       // tint when not hovered (template icons); white on hover
@@ -153,11 +154,16 @@ final class SessionRowView: NSView {
         pillView.imageScaling = .scaleNone
         pillView.autoresizingMask = [.minXMargin]
         addSubview(pillView)
+        contextRing.imageScaling = .scaleNone
+        contextRing.autoresizingMask = [.minXMargin]
+        contextRing.isHidden = true
+        addSubview(contextRing)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(icon: NSImage?, iconTint: NSColor?, spinning: Bool, name: String, branch: String, timer: String?,
-                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat) {
+                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat,
+                   contextIcon: NSImage?) {
         let w = bounds.width
         iconView.image = icon
         iconBaseTint = iconTint
@@ -183,6 +189,14 @@ final class SessionRowView: NSView {
                                     width: pill.size.width, height: pill.size.height)
             pillLeft = pillView.frame.minX
         } else { pillView.isHidden = true }
+        // Context-window ring sits just left of the pill (or where the pill would be, if absent).
+        var ringLeft = pillLeft
+        if let contextIcon = contextIcon {
+            contextRing.isHidden = false
+            contextRing.image = contextIcon
+            contextRing.frame = NSRect(x: pillLeft - ringGap - ringSize, y: (rowH - ringSize) / 2, width: ringSize, height: ringSize)
+            ringLeft = contextRing.frame.minX
+        } else { contextRing.isHidden = true }
         if let timer = timer {
             timerField.isHidden = false
             timerField.stringValue = timer
@@ -192,11 +206,11 @@ final class SessionRowView: NSView {
             let tw = ceil(timer.size(withAttributes: [.font: font]).width) + 2
             // Same point size and same box (y/height) as the name field, so the timer sits on the name's
             // baseline instead of floating at the row's vertical center.
-            timerField.frame = NSRect(x: pillLeft - timerGap - tw, y: (rowH - 16) / 2, width: tw, height: 16)
+            timerField.frame = NSRect(x: ringLeft - timerGap - tw, y: (rowH - 16) / 2, width: tw, height: 16)
         } else { timerField.isHidden = true }
-        // Name stretches to whatever the timer/pill leave free (branch text made the fixed 160 tight);
+        // Name stretches to whatever the timer/ring/pill leave free (branch text made the fixed 160 tight);
         // pixel truncation via the paragraph style handles overflow.
-        let nameRight = timer != nil ? timerField.frame.minX : pillLeft
+        let nameRight = timer != nil ? timerField.frame.minX : ringLeft
         nameField.frame.size.width = max(40, nameRight - timerGap - nameField.frame.minX)
     }
     // name in the label color, " · branch" dimmed — mirrored on hover, where setting textColor
@@ -386,6 +400,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     // step re-rasterized identical images at fps. Cleared when the style or color changes.
     var iconCache: [String: NSImage] = [:]
     var turnLineCache: [String: (mtime: Date?, line: String?)] = [:]
+    var contextCache: [String: (mtime: Date?, percent: Double?)] = [:]
     var desktopRunning = false
 
     let brand = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1) // #d97757, Anthropic's official "Orange" accent
@@ -851,6 +866,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let working = (eff == "thinking" || eff == "tool") && s.startedAt > 0
         let resting = !(eff == "permission" || eff == "thinking" || eff == "tool")  // the dim caret
         let tag = surfaceTag(s.entrypoint, zedEnvironment: s.zedEnvironment)
+        let contextPercent = s.transcript.isEmpty ? nil : cachedContextPercent(s.transcript)
         v.configure(icon: sessionSymbol(s, eff: eff),
                     iconTint: resting ? .tertiaryLabelColor : .labelColor,  // caret dim; spinner matches the name font; amber image ignores tint
                     spinning: (eff == "thinking" || eff == "tool"),
@@ -860,11 +876,13 @@ final class StatusController: NSObject, NSMenuDelegate {
                     pillNormal: tag.isEmpty ? nil : pillImage(tag),
                     pillSelected: tag.isEmpty ? nil : pillImage(tag, selected: true),
                     pillInset: CGFloat(cfg["pillInset"] ?? 12),
-                    timerGap: CGFloat(cfg["timerGap"] ?? 10))
+                    timerGap: CGFloat(cfg["timerGap"] ?? 10),
+                    contextIcon: contextPercent.map { contextRingIcon(percent: $0) })
         // Truncated rows stay inspectable: full name, branch, and path on hover.
         var tip = sessionName(s)
         if !s.branch.isEmpty { tip += " · " + s.branch }
         if !s.cwd.isEmpty { tip += "\n" + s.cwd }
+        if let percent = contextPercent { tip += String(format: "\nContext: %.0f%%", percent * 100) }
         v.toolTip = tip
     }
 
@@ -1371,6 +1389,80 @@ final class StatusController: NSObject, NSMenuDelegate {
         let line = lastTurnLine(ofFileAt: path)
         turnLineCache[path] = (m, line)
         return line
+    }
+
+    // The real configured ceiling (model default, --autocompact flag, 1M-context beta enrollment)
+    // isn't recorded anywhere in the local transcript, so this infers it from the observed token
+    // count itself: once usage exceeds the standard tier, the session must be running with the
+    // extended context window, so use that as the denominator instead. An approximation — not
+    // necessarily identical to what Claude Code's own /context reports internally.
+    static let standardContextLimit = 200_000
+    static let extendedContextLimit = 1_000_000
+
+    // Same mtime-gating as cachedLastTurnLine, to avoid re-tailing every session's transcript
+    // every 0.4s tick.
+    func cachedContextPercent(_ path: String) -> Double? {
+        let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        if let hit = contextCache[path], hit.mtime == m { return hit.percent }
+        let percent = contextPercent(ofFileAt: path)
+        contextCache[path] = (m, percent)
+        return percent
+    }
+
+    // Unlike lastTurnLine (user-or-assistant, for the "interrupted" check), this needs
+    // specifically the last ASSISTANT turn, since only assistant messages carry `usage`.
+    func contextPercent(ofFileAt path: String) -> Double? {
+        guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? fh.close() }
+        let size = (try? fh.seekToEnd()) ?? 0
+        let chunk: UInt64 = 8192
+        try? fh.seek(toOffset: size > chunk ? size - chunk : 0)
+        guard let data = try? fh.readToEnd(), let s = String(data: data, encoding: .utf8),
+              let line = s.split(separator: "\n").last(where: { $0.contains("\"type\":\"assistant\"") && $0.contains("\"usage\"") }),
+              let lineData = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              let message = obj["message"] as? [String: Any],
+              let usage = message["usage"] as? [String: Any] else { return nil }
+        let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
+        let cacheCreate = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
+        let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
+        let tokens = input + cacheCreate + cacheRead
+        guard tokens > 0 else { return nil }
+        let limit = tokens > Self.standardContextLimit ? Self.extendedContextLimit : Self.standardContextLimit
+        return Double(tokens) / Double(limit)
+    }
+
+    // A ring, filled clockwise from 12 o'clock proportional to `percent`, colored by how full the
+    // context window is. Recomputed per call (like pillImage()) rather than cached, so it tracks a
+    // live appearance switch.
+    func contextRingIcon(percent: Double) -> NSImage {
+        let side: CGFloat = 14, lineWidth: CGFloat = 2.2
+        let clamped = min(max(percent, 0), 1)
+        let color: NSColor
+        switch clamped {
+        case ..<0.7: color = .systemGreen
+        case ..<0.9: color = .systemOrange
+        default:     color = .systemRed
+        }
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let ovalRect = rect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+            let track = NSBezierPath(ovalIn: ovalRect)
+            NSColor.tertiaryLabelColor.withAlphaComponent(0.4).setStroke()
+            track.lineWidth = lineWidth
+            track.stroke()
+            if clamped > 0 {
+                let arc = NSBezierPath()
+                let startAngle: CGFloat = 90
+                let endAngle = startAngle - CGFloat(clamped) * 360
+                arc.appendArc(withCenter: NSPoint(x: rect.midX, y: rect.midY), radius: ovalRect.width / 2,
+                              startAngle: startAngle, endAngle: endAngle, clockwise: true)
+                color.setStroke()
+                arc.lineWidth = lineWidth
+                arc.lineCapStyle = .round
+                arc.stroke()
+            }
+            return true
+        }
     }
 
     func effectiveState(_ s: Session, now: Double) -> String {
