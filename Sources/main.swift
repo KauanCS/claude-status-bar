@@ -1448,10 +1448,16 @@ final class StatusController: NSObject, NSMenuDelegate {
         applyTitle() // refresh the elapsed clock
     }
 
+    // Whether the current icon can safely carry a baked-in colored corner badge: not a template
+    // image (nil color = "System" icon mode, where the OS's own recoloring pass would flatten
+    // it), and not the crab sprite — detailed pixel art at a size too small for a corner overlay
+    // to read as anything but broken. applyTitle()'s text bullet is the fallback in both cases.
+    var iconCanCarryBadge: Bool { activeColor != nil && animStyle != .crab }
+
     // Layers the pending corner badge onto a freshly built icon when something else is pending —
     // never onto a cached one (iconImage's own cache stays badge-free so it isn't polluted).
     func finalIcon(_ img: NSImage) -> NSImage {
-        iconPendingBadge ? withPendingCorner(img) : img
+        iconPendingBadge && iconCanCarryBadge ? withPendingCorner(img) : img
     }
 
     // Overlays a small purple "something else is pending" badge on the actual menu bar icon —
@@ -1493,7 +1499,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         // itself, so it's folded into the cache key separately — otherwise toggling the marker with
         // an unchanged label (e.g. a second session goes pending while this one keeps thinking)
         // would be silently skipped.
-        let cacheKey = text + (iconPendingBadge ? "\u{2022}" : "")
+        let showTextBullet = iconPendingBadge && !iconCanCarryBadge
+        let cacheKey = text + (showTextBullet ? "\u{2022}" : "")
         guard cacheKey != lastTitleText else { return }
         lastTitleText = cacheKey
         if text.isEmpty {
@@ -1509,11 +1516,11 @@ final class StatusController: NSObject, NSMenuDelegate {
             .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
         ]
         let title = NSMutableAttributedString()
-        // The icon itself already carries this signal (withPendingCorner) whenever it isn't a
-        // template image — activeColor is nil only in "System" icon mode's animated state, where
-        // baking a colored badge into the template would get flattened by the OS. Text is the
-        // fallback there since attributedTitle color isn't subject to template recoloring.
-        if iconPendingBadge, activeColor == nil {
+        // The icon itself already carries this signal (withPendingCorner) whenever iconCanCarryBadge
+        // is true. Text is the fallback for the two cases it isn't: "System" icon mode (a colored
+        // badge would get flattened into the template's B&W recoloring) and the crab sprite (too
+        // small/detailed for a corner overlay to read as anything but broken).
+        if showTextBullet {
             // A separate session is pending while this one drives the icon — a small purple dot
             // ahead of the label says so without hiding what's actively running. A negative
             // strokeWidth fills AND outlines the glyph (same adaptive-ring trick as the row icon),
