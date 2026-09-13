@@ -103,7 +103,6 @@ final class SessionRowView: NSView {
     let id: String
     var onClick: (() -> Void)?
     static let pendingColor = NSColor(srgbRed: 0.596, green: 0.361, blue: 0.902, alpha: 1) // #9863E6, unread badge
-    private let pendingDot = NSView()
     private let iconView = NSImageView()
     private let spinner = NSProgressIndicator()
     private let nameField = NSTextField(labelWithString: "")
@@ -131,17 +130,6 @@ final class SessionRowView: NSView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.autoresizingMask = [.maxXMargin]
         addSubview(iconView)
-        // Small purple "unread" badge at the icon's top-right corner, matching a Slack-style
-        // notification dot. Hidden by default; shown by configure(pending:).
-        let dotSize: CGFloat = 8
-        pendingDot.wantsLayer = true
-        pendingDot.layer?.cornerRadius = dotSize / 2
-        pendingDot.layer?.backgroundColor = SessionRowView.pendingColor.cgColor
-        pendingDot.frame = NSRect(x: pad + iconSize - dotSize / 2, y: (rowH - iconSize) / 2 + iconSize - dotSize / 2,
-                                   width: dotSize, height: dotSize)
-        pendingDot.autoresizingMask = [.maxXMargin]
-        pendingDot.isHidden = true
-        addSubview(pendingDot)
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isIndeterminate = true
@@ -169,9 +157,8 @@ final class SessionRowView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(icon: NSImage?, iconTint: NSColor?, spinning: Bool, name: String, branch: String, timer: String?,
-                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat, pending: Bool) {
+                   pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat) {
         let w = bounds.width
-        pendingDot.isHidden = !pending
         iconView.image = icon
         iconBaseTint = iconTint
         iconView.contentTintColor = hovered ? .white : iconTint
@@ -389,6 +376,10 @@ final class StatusController: NSObject, NSMenuDelegate {
     var startedAt: Double = 0  // unix seconds the current turn began (0 = no clock)
     var activeColor: NSColor? = nil
     var lastTitleText: String? = nil
+    // True when some OTHER session is pending while an active one (permission/thinking/tool)
+    // drives the icon — layers a small purple marker onto the title instead of the pending
+    // session fully hiding the active one (see evaluate()).
+    var iconPendingBadge = false
     // Tinted frames are deterministic per (style, frame, color); rebuilding one per animation
     // step re-rasterized identical images at fps. Cleared when the style or color changes.
     var iconCache: [String: NSImage] = [:]
@@ -867,8 +858,7 @@ final class StatusController: NSObject, NSMenuDelegate {
                     pillNormal: tag.isEmpty ? nil : pillImage(tag),
                     pillSelected: tag.isEmpty ? nil : pillImage(tag, selected: true),
                     pillInset: CGFloat(cfg["pillInset"] ?? 12),
-                    timerGap: CGFloat(cfg["timerGap"] ?? 10),
-                    pending: pendingSessions.contains(s.id))
+                    timerGap: CGFloat(cfg["timerGap"] ?? 10))
         // Truncated rows stay inspectable: full name, branch, and path on hover.
         var tip = sessionName(s)
         if !s.branch.isEmpty { tip += " · " + s.branch }
@@ -929,10 +919,33 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func sessionSymbol(_ s: Session, eff: String) -> NSImage? {
+        // Pending gets its own full icon (same "one glyph replaces the caret" pattern as the amber
+        // permission icon below) rather than a small badge layered on top of the caret — a corner
+        // badge on that thin, centered glyph read as a floating, disconnected dot. Only reachable
+        // when eff is idle/done or permission (thinking/tool always clears pending — see
+        // updatePendingState), so this never has to coexist with the spinner.
+        if pendingSessions.contains(s.id) { return pendingRowIcon() }
         switch eff {
         case "permission":       return symbolImage("exclamationmark.circle.fill", tint: amber)
         case "thinking", "tool": return nil
         default:                 return restingCaret   // done/idle merged: dim "ready for input" caret
+        }
+    }
+
+    // Solid purple circle with a thin adaptive ring for contrast against both light and dark menu
+    // bars (recomputed per call, like pillImage(), rather than cached, so it tracks a live
+    // appearance switch).
+    func pendingRowIcon() -> NSImage {
+        let side: CGFloat = 15, d: CGFloat = 11
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let path = NSBezierPath(ovalIn: NSRect(x: (side - d) / 2, y: (side - d) / 2, width: d, height: d).insetBy(dx: 0.75, dy: 0.75))
+            SessionRowView.pendingColor.setFill()
+            path.fill()
+            (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.28).setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+            return true
         }
     }
 
@@ -1261,9 +1274,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
 
         // Surface the single highest-priority session (pending > permission > working > …); ties
-        // broken by recency, so within a tier the most recently active session wins. Pending
-        // outranks everything: a finished/awaiting session you haven't looked at yet must never
-        // be hidden behind one that's merely thinking.
+        // broken by recency, so within a tier the most recently active session wins. Used for the
+        // tooltip and as the fallback when nothing anywhere is actively working.
         func leadRank(_ s: Session) -> Int { pendingSessions.contains(s.id) ? 3 : priority(of: s.eff) }
         let lead = sessions.values.max { a, b in
             let pa = leadRank(a), pb = leadRank(b)
@@ -1272,16 +1284,31 @@ final class StatusController: NSObject, NSMenuDelegate {
         statusItem.button?.toolTip = lead.map(sessionMenuLine)  // names repo + surface + state on hover
 
         guard let lead = lead else { renderResting(); return }
-        if pendingSessions.contains(lead.id) {
-            render(label: statusText(lead, eff: lead.eff), color: pendingPurple, animate: false, startedAt: 0, dot: true)
+
+        // Pending is an OVERLAY, not an override: a session that's merely thinking must never be
+        // fully hidden behind an unrelated one that already finished. Pick the most urgent ACTIVE
+        // session (permission/thinking/tool) to actually drive the icon/animation; if anything
+        // anywhere is pending, layer a small purple marker onto its title instead of replacing it.
+        // Only when nothing anywhere is active does the pure pending-dot treatment take over.
+        let activeLead = sessions.values.filter { $0.eff == "permission" || $0.eff == "thinking" || $0.eff == "tool" }
+            .max { a, b in
+                let pa = priority(of: a.eff), pb = priority(of: b.eff)
+                return pa == pb ? a.ts < b.ts : pa < pb
+            }
+        if let active = activeLead {
+            iconPendingBadge = pendingSessions.contains { sessions[$0] != nil }
+            switch active.eff {
+            case "permission":
+                render(label: statusText(active, eff: active.eff), color: amber, animate: false, startedAt: 0, dot: true)
+            default: // thinking, tool
+                render(label: statusText(active, eff: active.eff), color: iconColor, animate: true, startedAt: active.startedAt)
+            }
             return
         }
-        switch lead.eff {
-        case "permission":
-            render(label: statusText(lead, eff: lead.eff), color: amber, animate: false, startedAt: 0, dot: true)
-        case "thinking", "tool":
-            render(label: statusText(lead, eff: lead.eff), color: iconColor, animate: true, startedAt: lead.startedAt)
-        default:
+        iconPendingBadge = false
+        if pendingSessions.contains(lead.id) {
+            render(label: statusText(lead, eff: lead.eff), color: pendingPurple, animate: false, startedAt: 0, dot: true)
+        } else {
             renderResting()
         }
     }
@@ -1430,9 +1457,13 @@ final class StatusController: NSObject, NSMenuDelegate {
         // Assigning attributedTitle re-shapes the string through CoreText and re-snapshots the
         // status item bitmap, so at animation fps an unchanged title costs a full redraw per frame
         // (the clock only ticks at 1 Hz). labelColor is dynamic and resolves at draw, so skipping
-        // the assignment still tracks light/dark menu bars.
-        guard text != lastTitleText else { return }
-        lastTitleText = text
+        // the assignment still tracks light/dark menu bars. The pending marker isn't part of `text`
+        // itself, so it's folded into the cache key separately — otherwise toggling the marker with
+        // an unchanged label (e.g. a second session goes pending while this one keeps thinking)
+        // would be silently skipped.
+        let cacheKey = text + (iconPendingBadge ? "\u{2022}" : "")
+        guard cacheKey != lastTitleText else { return }
+        lastTitleText = cacheKey
         if text.isEmpty {
             button.imagePosition = .imageOnly
             button.attributedTitle = NSAttributedString(string: "")
@@ -1445,7 +1476,17 @@ final class StatusController: NSObject, NSMenuDelegate {
             .foregroundColor: NSColor.labelColor,
             .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
         ]
-        button.attributedTitle = NSAttributedString(string: " \(text)", attributes: attrs)
+        let title = NSMutableAttributedString()
+        if iconPendingBadge {
+            // A separate session is pending while this one drives the icon — a small purple dot
+            // ahead of the label says so without hiding what's actively running.
+            title.append(NSAttributedString(string: " \u{2022}", attributes: [
+                .foregroundColor: SessionRowView.pendingColor,
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
+            ]))
+        }
+        title.append(NSAttributedString(string: " \(text)", attributes: attrs))
+        button.attributedTitle = title
     }
 
     // MARK: icon
