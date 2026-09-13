@@ -537,24 +537,24 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
-    // `/bin/zsh -lc node` saw only the login PATH, missing nvm/fnm set in .zshrc.
-    static func locateNode() -> String? {
+    // `/bin/zsh -lc <name>` sees only the login PATH, missing nvm/fnm set in .zshrc — shared by
+    // any executable this app needs to shell out to that a user might install via a version
+    // manager (node, and now claude itself, for the usage check below).
+    static func locateExecutable(_ name: String, extraCandidates: [String] = []) -> String? {
         let fm = FileManager.default
         let home = NSHomeDirectory()
         var candidates = [
-            "/opt/homebrew/bin/node",
-            "/usr/local/bin/node",
-            "/usr/bin/node",
-            "\(home)/.volta/bin/node",
-            "\(home)/.asdf/shims/node",
-        ]
+            "/opt/homebrew/bin/\(name)",
+            "/usr/local/bin/\(name)",
+            "/usr/bin/\(name)",
+        ] + extraCandidates
         let nvmDir = "\(home)/.nvm/versions/node"
         if let versions = try? fm.contentsOfDirectory(atPath: nvmDir) {
-            for v in versions.sorted(by: >) { candidates.append("\(nvmDir)/\(v)/bin/node") }
+            for v in versions.sorted(by: >) { candidates.append("\(nvmDir)/\(v)/bin/\(name)") }
         }
         for path in candidates where fm.isExecutableFile(atPath: path) { return path }
 
-        for args in [["-ilc", "command -v node"], ["-lc", "command -v node"]] {
+        for args in [["-ilc", "command -v \(name)"], ["-lc", "command -v \(name)"]] {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/bin/zsh")
             p.arguments = args
@@ -570,6 +570,15 @@ final class StatusController: NSObject, NSMenuDelegate {
             if !path.isEmpty, fm.isExecutableFile(atPath: path) { return path }
         }
         return nil
+    }
+
+    static func locateNode() -> String? {
+        let home = NSHomeDirectory()
+        return locateExecutable("node", extraCandidates: ["\(home)/.volta/bin/node", "\(home)/.asdf/shims/node"])
+    }
+
+    static func locateClaude() -> String? {
+        locateExecutable("claude", extraCandidates: ["\(NSHomeDirectory())/.claude/local/claude"])
     }
 
     // MARK: update check
@@ -588,6 +597,112 @@ final class StatusController: NSObject, NSMenuDelegate {
     var brewManaged: Bool {
         FileManager.default.fileExists(atPath: "/opt/homebrew/Caskroom/claude-status-bar")
             || FileManager.default.fileExists(atPath: "/usr/local/Caskroom/claude-status-bar")
+    }
+
+    // MARK: usage check (Current session / Current week quota, from `claude`'s own /usage)
+
+    struct UsageInfo {
+        var sessionPercent: Int, sessionReset: String
+        var weekPercent: Int, weekReset: String
+    }
+    var usageInfo: UsageInfo?
+
+    // This is account-level quota data with no local record anywhere (unlike everything else this
+    // app reads) — /usage is a live, server-side figure, only reachable by asking `claude` itself.
+    // Shelling out takes several seconds, so this runs off-thread and gated to once every 10
+    // minutes; the currently-open menu keeps showing whatever was cached from the last check,
+    // refreshing on the NEXT open — same lazy-cache pattern as checkForUpdate() above.
+    // --no-session-persistence keeps this invisible in the sessions list and transcript history
+    // (verified: file count in ~/.claude/projects/<project>/ unchanged before/after).
+    func checkUsage() {
+        let d = UserDefaults.standard
+        let now = Date().timeIntervalSince1970
+        // usageInfo is in-memory only and always starts nil on a fresh launch, but lastUsageCheck
+        // persists in UserDefaults across relaunches — without the usageInfo-nil override, a
+        // relaunch within 10 minutes of the last check would never fire a new one, leaving the
+        // Usage section stuck with nothing to show indefinitely.
+        if usageInfo != nil, now - d.double(forKey: "lastUsageCheck") < 600 { return }
+        d.set(now, forKey: "lastUsageCheck")
+        guard let claudePath = Self.locateClaude() else { return }
+        DispatchQueue.global().async { [weak self] in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: claudePath)
+            task.arguments = ["--no-session-persistence", "-p", "/usage"]
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = FileHandle.nullDevice
+            guard (try? task.run()) != nil else { return }
+            task.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8),
+                  let usage = Self.parseUsage(output) else { return }
+            DispatchQueue.main.async { self?.usageInfo = usage }
+        }
+    }
+
+    // Parses lines like:
+    //   "Current session: 69% used · resets Sep 13 at 3:10pm (America/Sao_Paulo)"
+    //   "Current week (all models): 22% used · resets Sep 17 at 8pm (America/Sao_Paulo)"
+    static func parseUsage(_ output: String) -> UsageInfo? {
+        func match(_ pattern: String) -> (Int, String)? {
+            guard let re = try? NSRegularExpression(pattern: pattern),
+                  let m = re.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
+                  let pctRange = Range(m.range(at: 1), in: output),
+                  let restRange = Range(m.range(at: 2), in: output),
+                  let pct = Int(output[pctRange]) else { return nil }
+            return (pct, String(output[restRange]).trimmingCharacters(in: .whitespaces))
+        }
+        guard let session = match(#"Current session:\s*(\d+)% used · resets (.+)"#),
+              let week = match(#"Current week[^:]*:\s*(\d+)% used · resets (.+)"#) else { return nil }
+        return UsageInfo(sessionPercent: session.0, sessionReset: "Resets " + session.1,
+                          weekPercent: week.0, weekReset: "Resets " + week.1)
+    }
+
+    // Determinate progress bar + percent + reset time, mirroring toggleRow's custom-view style.
+    func usageBarRow(title: String, percent: Int, resetText: String) -> NSMenuItem {
+        // Stacked bottom-up: resetLabel (y 4-16), gap 4, bar (y 20-26), gap 6, title/percent row
+        // (y 32-48), top margin 4 — sized to not overlap (an earlier version put the bar and
+        // resetLabel at overlapping y-ranges, which drew the bar through the reset text).
+        let width = CGFloat(uiConfig()["boxWidth"] ?? 300), height: CGFloat = 52, pad: CGFloat = 14
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        row.autoresizingMask = [.width]
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .menuFont(ofSize: 0)
+        titleLabel.textColor = .labelColor
+        titleLabel.frame = NSRect(x: pad, y: 32, width: 150, height: 16)
+        titleLabel.autoresizingMask = [.maxXMargin]
+        row.addSubview(titleLabel)
+
+        let percentLabel = NSTextField(labelWithString: "\(percent)%")
+        percentLabel.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular)
+        percentLabel.textColor = .secondaryLabelColor
+        percentLabel.alignment = .right
+        percentLabel.sizeToFit()
+        percentLabel.frame = NSRect(x: width - pad - percentLabel.frame.width, y: 32,
+                                     width: percentLabel.frame.width, height: 16)
+        percentLabel.autoresizingMask = [.minXMargin]
+        row.addSubview(percentLabel)
+
+        let bar = NSProgressIndicator(frame: NSRect(x: pad, y: 20, width: width - pad * 2, height: 6))
+        bar.style = .bar
+        bar.isIndeterminate = false
+        bar.minValue = 0
+        bar.maxValue = 100
+        bar.doubleValue = Double(percent)
+        bar.autoresizingMask = [.width]
+        row.addSubview(bar)
+
+        let resetLabel = NSTextField(labelWithString: resetText)
+        resetLabel.font = NSFont.systemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize - 1)
+        resetLabel.textColor = .tertiaryLabelColor
+        resetLabel.frame = NSRect(x: pad, y: 4, width: width - pad * 2, height: 12)
+        resetLabel.autoresizingMask = [.width]
+        row.addSubview(resetLabel)
+
+        let item = NSMenuItem()
+        item.view = row
+        return item
     }
 
     // Once/day: cache GitHub's latest release tag in UserDefaults. Nothing sent to us.
@@ -710,6 +825,14 @@ final class StatusController: NSObject, NSMenuDelegate {
             let open = NSMenuItem(title: "Open Claude", action: #selector(openClaude), keyEquivalent: "")
             open.target = self
             menu.addItem(open)
+            menu.addItem(.separator())
+        }
+
+        checkUsage() // refreshes the usage cache for next open (gated to once every 10 min)
+        if let usage = usageInfo {
+            menu.addItem(header("Usage"))
+            menu.addItem(usageBarRow(title: "Session", percent: usage.sessionPercent, resetText: usage.sessionReset))
+            menu.addItem(usageBarRow(title: "Week", percent: usage.weekPercent, resetText: usage.weekReset))
             menu.addItem(.separator())
         }
 
