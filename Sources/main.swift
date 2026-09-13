@@ -1522,15 +1522,18 @@ final class StatusController: NSObject, NSMenuDelegate {
         // small/detailed for a corner overlay to read as anything but broken).
         if showTextBullet {
             // A separate session is pending while this one drives the icon — a small purple dot
-            // ahead of the label says so without hiding what's actively running. A negative
-            // strokeWidth fills AND outlines the glyph (same adaptive-ring trick as the row icon),
-            // so the dot stays legible against either a light or dark menu bar.
+            // ahead of the label says so without hiding what's actively running. "●" (a filled
+            // circle) reads far larger than "•" (bullet) at the same point size, and a bumped font
+            // size makes it larger still; a negative strokeWidth fills AND outlines the glyph (same
+            // adaptive-ring trick as the row icon), so it stays legible against either a light or
+            // dark menu bar.
             let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            title.append(NSAttributedString(string: " \u{2022}", attributes: [
+            title.append(NSAttributedString(string: " \u{25CF}", attributes: [
                 .foregroundColor: SessionRowView.pendingColor,
-                .strokeColor: (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.35),
+                .strokeColor: (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.4),
                 .strokeWidth: -3.5,
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
+                .font: NSFont.systemFont(ofSize: 14, weight: .regular),
+                .baselineOffset: -1,
             ]))
         }
         title.append(NSAttributedString(string: " \(text)", attributes: attrs))
