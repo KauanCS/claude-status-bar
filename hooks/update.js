@@ -97,11 +97,16 @@ process.stdin.on("end", () => {
   // mid-life, but pid resolution is cheap and this keeps behavior identical for pre-upgrade
   // files that predate this field (prev.tty is undefined -> falls through to a fresh resolve).
   const tty = getTtyForPid(process.ppid) || prev.tty || "";
+  // ZED_ENVIRONMENT is only set by Zed itself (its Agent Panel spawns the session via the Claude
+  // Agent SDK, which reports as CLAUDE_CODE_ENTRYPOINT="sdk-ts" with no TERM_PROGRAM/tty — that
+  // generic entrypoint alone doesn't identify Zed, since any app embedding the SDK could set it,
+  // but this env var is Zed's own deliberate signal). Same carry-over pattern as term_program/tty.
+  const zedEnvironment = process.env.ZED_ENVIRONMENT || prev.zed_environment || "";
   // process.ppid IS this session's `claude` process (verified: hooks are spawned directly by it,
   // stable for the session's life, on both CLI and desktop). The app uses kill(pid,0) for liveness.
   // started:true — any update.js event (prompt/tool/permission/stop) is real activity, so the session
   // graduates from "merely opened" to visible in the dropdown. Clicking a conversation never fires here.
-  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, tty, pid: process.ppid, started: true, startedAt, ts };
+  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, tty, zed_environment: zedEnvironment, pid: process.ppid, started: true, startedAt, ts };
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     const tmp = statePath + "." + process.pid + ".tmp";
