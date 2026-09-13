@@ -1479,9 +1479,14 @@ final class StatusController: NSObject, NSMenuDelegate {
         let title = NSMutableAttributedString()
         if iconPendingBadge {
             // A separate session is pending while this one drives the icon — a small purple dot
-            // ahead of the label says so without hiding what's actively running.
+            // ahead of the label says so without hiding what's actively running. A negative
+            // strokeWidth fills AND outlines the glyph (same adaptive-ring trick as the row icon),
+            // so the dot stays legible against either a light or dark menu bar.
+            let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             title.append(NSAttributedString(string: " \u{2022}", attributes: [
                 .foregroundColor: SessionRowView.pendingColor,
+                .strokeColor: (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.35),
+                .strokeWidth: -3.5,
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
             ]))
         }
