@@ -1307,7 +1307,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
         iconPendingBadge = false
         if pendingSessions.contains(lead.id) {
-            render(label: statusText(lead, eff: lead.eff), color: pendingPurple, animate: false, startedAt: 0, dot: true)
+            render(label: statusText(lead, eff: lead.eff), color: pendingPurple, animate: false, startedAt: 0, dot: true, ringed: true)
         } else {
             renderResting()
         }
@@ -1420,7 +1420,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // MARK: render
 
-    func render(label: String, color: NSColor?, animate: Bool, startedAt: Double, dot: Bool = false) {
+    func render(label: String, color: NSColor?, animate: Bool, startedAt: Double, dot: Bool = false, ringed: Bool = false) {
         guard let button = statusItem.button else { return }
         button.contentTintColor = nil // we paint the icon color ourselves; template-tint is unreliable
         activeBase = label
@@ -1436,10 +1436,10 @@ final class StatusController: NSObject, NSMenuDelegate {
         } else {
             animTimer?.invalidate(); animTimer = nil
             frameIdx = 0
-            button.image = dot ? dotIcon(color: color) : restingIcon(color: color)
+            button.image = dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color)
         }
         applyTitle()
-        if button.image == nil { button.image = dot ? dotIcon(color: color) : restingIcon(color: color) }
+        if button.image == nil { button.image = dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color) }
     }
 
     func animStep() {
@@ -1597,11 +1597,21 @@ final class StatusController: NSObject, NSMenuDelegate {
         return img
     }
 
-    func dotIcon(color: NSColor?) -> NSImage {
+    // `ringed` adds a thin adaptive stroke for colors (like pending's purple) that don't have
+    // amber's natural contrast against a menu bar; unused for the permission dot.
+    func dotIcon(color: NSColor?, ringed: Bool = false) -> NSImage {
         let s: CGFloat = 18, d: CGFloat = 9
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let img = NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
+            let rect = NSRect(x: (s - d) / 2, y: (s - d) / 2, width: d, height: d)
             (color ?? .systemYellow).setFill()
-            NSBezierPath(ovalIn: NSRect(x: (s - d) / 2, y: (s - d) / 2, width: d, height: d)).fill()
+            NSBezierPath(ovalIn: rect).fill()
+            if ringed {
+                (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.32).setStroke()
+                let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+                ring.lineWidth = 1
+                ring.stroke()
+            }
             return true
         }
         img.isTemplate = (color == nil)
