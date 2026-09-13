@@ -1436,16 +1436,48 @@ final class StatusController: NSObject, NSMenuDelegate {
         } else {
             animTimer?.invalidate(); animTimer = nil
             frameIdx = 0
-            button.image = dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color)
+            button.image = finalIcon(dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color))
         }
         applyTitle()
-        if button.image == nil { button.image = dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color) }
+        if button.image == nil { button.image = finalIcon(dot ? dotIcon(color: color, ringed: ringed) : restingIcon(color: color)) }
     }
 
     func animStep() {
         frameIdx = (frameIdx + 1) % frameCount
-        statusItem.button?.image = iconImage(color: activeColor, frame: frameIdx)
+        statusItem.button?.image = finalIcon(iconImage(color: activeColor, frame: frameIdx))
         applyTitle() // refresh the elapsed clock
+    }
+
+    // Layers the pending corner badge onto a freshly built icon when something else is pending —
+    // never onto a cached one (iconImage's own cache stays badge-free so it isn't polluted).
+    func finalIcon(_ img: NSImage) -> NSImage {
+        iconPendingBadge ? withPendingCorner(img) : img
+    }
+
+    // Overlays a small purple "something else is pending" badge on the actual menu bar icon —
+    // the active state (spinner/permission dot) and the pending signal shown together, not one
+    // hiding the other. Skipped for template images (nil color / "System" icon mode): baking
+    // extra colored pixels into a template mask would just get flattened to plain black/white by
+    // the OS's own recoloring pass, so that mode falls back to the "•" title marker instead
+    // (see applyTitle()).
+    func withPendingCorner(_ img: NSImage) -> NSImage {
+        guard !img.isTemplate else { return img }
+        let s = img.size
+        let d: CGFloat = 7
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let out = NSImage(size: s, flipped: false) { rect in
+            img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            let dotRect = NSRect(x: rect.maxX - d - 0.5, y: rect.maxY - d - 0.5, width: d, height: d)
+            let path = NSBezierPath(ovalIn: dotRect)
+            SessionRowView.pendingColor.setFill()
+            path.fill()
+            (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.45).setStroke()
+            path.lineWidth = 1.25
+            path.stroke()
+            return true
+        }
+        out.isTemplate = false
+        return out
     }
 
     func applyTitle() {
@@ -1477,7 +1509,11 @@ final class StatusController: NSObject, NSMenuDelegate {
             .font: NSFont.monospacedDigitSystemFont(ofSize: 0, weight: .regular),
         ]
         let title = NSMutableAttributedString()
-        if iconPendingBadge {
+        // The icon itself already carries this signal (withPendingCorner) whenever it isn't a
+        // template image — activeColor is nil only in "System" icon mode's animated state, where
+        // baking a colored badge into the template would get flattened by the OS. Text is the
+        // fallback there since attributedTitle color isn't subject to template recoloring.
+        if iconPendingBadge, activeColor == nil {
             // A separate session is pending while this one drives the icon — a small purple dot
             // ahead of the label says so without hiding what's actively running. A negative
             // strokeWidth fills AND outlines the glyph (same adaptive-ring trick as the row icon),
@@ -1607,9 +1643,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             (color ?? .systemYellow).setFill()
             NSBezierPath(ovalIn: rect).fill()
             if ringed {
-                (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.32).setStroke()
+                (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.45).setStroke()
                 let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
-                ring.lineWidth = 1
+                ring.lineWidth = 1.5
                 ring.stroke()
             }
             return true
